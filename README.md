@@ -1,0 +1,44 @@
+# claude-code-skills
+
+A personal marketplace of [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills by [@mwx27](https://github.com/mwx27). Each skill is packaged as an installable plugin so you can add it to your own Claude Code setup with a couple of commands.
+
+## Status & scope
+
+These are primarily personal skills, published mainly so they're easy to version, iterate on, and reinstall across machines — not (yet) turnkey tools for general use.
+
+`cv-bullets` in particular is tightly coupled to my own CV: it assumes a specific data shape (`content/cv.pl.ts` / `content/cv.en.ts`, with `aiItExperience` / `itExperience` sections and a particular field schema) and bilingual Polish/English output. The CV itself isn't in this repo (it's live at [maciejwojda.cv](https://maciejwojda.cv)), and `config.md` externalizes only paths and your git-author pattern — not the CV structure. So it fits my setup out of the box, less so yours.
+
+None of that is fundamental, though: the coupling lives in assumptions (CV schema, languages, section names) that could move into config. Making it genuinely reusable for others is a realistic future direction — just not there yet.
+
+## Installation
+
+Add this marketplace, then install a skill from it:
+
+```
+/plugin marketplace add mwx27/claude-code-skills
+/plugin install cv-bullets
+```
+
+## Configuration
+
+Some skills read a per-user config file so they don't ship anyone's personal paths or identity. For `cv-bullets`:
+
+1. Copy the example config into your Claude config directory:
+
+   ```bash
+   cp ~/.claude/plugins/cv-bullets/config.md.example ~/.claude/skills/cv-bullets/config.md
+   ```
+
+   (Adjust the source path if your plugin installs elsewhere — the file is `config.md.example` inside the `cv-bullets` plugin.)
+
+2. Open `~/.claude/skills/cv-bullets/config.md` and fill in:
+   - **`cv_path`** — path to your CV folder (the one containing `content/cv.pl.ts` / `content/cv.en.ts`)
+   - **`git_author_pattern`** — substring(s) for `git log --author` matching your commits (GitHub nick, email fragment, or name; comma-separated if you use several accounts)
+
+`config.md` is git-ignored, so your personal data never gets committed. If you skip this step, the skill will ask you for both values on first run and offer to create the file for you.
+
+## Available skills
+
+### cv-bullets
+
+Generate, refine, or analyze CV/resume bullets for software projects. It runs a mandatory dialog gate to capture cross-repo context, scans the project repo (and related sibling repos), pulls git + PR metrics, categorizes achievements as baseline vs senior, and composes bilingual (Polish/English) bullets that follow a strict style guide — writing them straight into your CV files for review via `git diff`.

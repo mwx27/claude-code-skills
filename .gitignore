@@ -1,0 +1,13 @@
+# Per-user skill config — must never be committed (holds personal paths / identity)
+config.md
+**/config.md
+
+# OS / editor cruft
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc

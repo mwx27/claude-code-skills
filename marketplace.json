@@ -1,0 +1,13 @@
+{
+  "name": "mwx27-claude-code-skills",
+  "owner": {
+    "name": "Maciej Wojda"
+  },
+  "plugins": [
+    {
+      "name": "cv-bullets",
+      "source": "./skills/cv-bullets",
+      "description": "Generate, refine, or analyze CV/resume bullets for software projects — bilingual (Polish/English), repo-aware, with git metrics and a senior-vs-baseline filter."
+    }
+  ]
+}

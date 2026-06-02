@@ -1,0 +1,42 @@
+# cv-bullets config
+
+Copy this file to `~/.claude/skills/cv-bullets/config.md` and fill in your own
+values. The skill reads it at the start of every run (Phase 0). It is git-ignored
+in this repo, so your personal data never gets committed.
+
+## Parameters
+
+### cv_path
+
+Absolute path to the folder that holds your CV data files. The skill expects
+`content/cv.pl.ts` (Polish) and `content/cv.en.ts` (English) under this path,
+and writes inventory files to `content/data-inventories/` there.
+
+```
+cv_path: ~/dev/cv/
+```
+
+Used in:
+- **Phase 0** — to locate and read the existing CV for the "new entry vs refinement"
+  check and for style mirroring.
+- **Phase 1 / Phase 7** — to read and write `cv.pl.ts` / `cv.en.ts`.
+- **Phase 4.5** — to save the inventory markdown under `<cv_path>/content/data-inventories/`.
+
+### git_author_pattern
+
+Substring passed to `git log --author` so the skill can isolate *your* commits in
+a repo. It can be a GitHub nick, a fragment of your email, or your name — whatever
+reliably matches your commits. Matching is case-insensitive and checks both the
+author name and email.
+
+If you commit from several accounts (e.g. work + personal email, or a renamed
+GitHub handle), list a few patterns separated by commas — the skill will try each.
+
+```
+git_author_pattern: your-github-nick, you@example.com, Your Name
+```
+
+Used in:
+- **Phase 2** — as the `--author` value for `scripts/analyze_git.py`.
+- **Phase 0 / Step 1.1** — as the `--author` value for `scripts/scan_siblings.py`
+  when detecting which sibling repos you contributed to.

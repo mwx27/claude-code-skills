@@ -16,6 +16,17 @@ long examples — into `references/*.md` that the workflow points to on demand, 
 absolute `~/.claude/skills/<skill>/scripts/…` paths, because the working directory at
 runtime is the user's project, not the skill folder.
 
+## One home per fact across the doc layers
+
+A skill's docs form layers — `SKILL.md` (skeleton), `references/*.md` (operational detail),
+`CHANGELOG.md` (version delta), `README.md` (human overview). A given fact — a threshold, a
+flag, a caveat — gets **one load-bearing home** (usually the relevant `references/*.md`);
+the other layers point to it, not copy it. Before adding detail to one layer, check it
+isn't already carried by another. Default to the shortest prose that conveys the point —
+verbose additions get trimmed in review, so write them lean the first time. A known
+limitation's living home is its `references/*.md`; `README.md` carries a general,
+jargon-free version for humans, and `CHANGELOG.md` a version-scoped note.
+
 ## Versioning
 
 SemVer, `0.x` until an interface settles. Each skill owns a `CHANGELOG.md`

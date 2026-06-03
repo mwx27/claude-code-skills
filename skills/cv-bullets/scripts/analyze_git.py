@@ -5,24 +5,39 @@ analyze_git.py — Git history analysis for CV bullets skill.
 Outputs metrics useful for CV self-assessment:
 - Total commits in period (or all-time)
 - Author breakdown (user vs others, % share)
+- Identity rollup (every name/email variant you commit under, with counts)
 - Conventional commit type counts
 - Quality ratios (feat:fix, refactor+test+perf as % of total)
 - Test commit ratio (% touching test files)
 - Average commit size (lines changed)
 - Active days in period
 
+It also provides an **authorship gate** (--paths): for each file/folder, it reports your
+git-blame share and whether you created it, classifying it OWN / PARTIAL / SKIP so the
+skill never bullets work that isn't verifiably yours.
+
 Usage:
-    python analyze_git.py [--author "Name or email pattern"] [--since YYYY-MM-DD] [--until YYYY-MM-DD]
+    # History metrics (repeat --author for every name/email variant you commit under):
+    python analyze_git.py [--author "Name"] [--author "gh-handle"] [--since YYYY-MM-DD] [--until YYYY-MM-DD]
+    # Authorship gate over specific paths:
+    python analyze_git.py --author "Name" --author "gh-handle" --paths src/ai/ app/_layout.tsx
 
 The script runs in the current directory (assumed to be a git repository).
 """
 
 import argparse
+import os
 import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime
+
+# Authorship-gate thresholds (your blame share of a path's lines)
+OWN_THRESHOLD = 50.0       # >= this, or you created the file → OWN
+PARTIAL_THRESHOLD = 20.0   # >= this and < OWN → PARTIAL (bullet only with co-built framing)
+                           # < PARTIAL_THRESHOLD → SKIP (do not bullet)
+MAX_FILES_PER_PATH = 400   # cap blame work per directory; truncation is reported, never silent
 
 
 CONVENTIONAL_TYPES = [
@@ -136,28 +151,41 @@ def is_test_file(filepath):
     return False
 
 
-def matches_author(commit, author_pattern):
-    """Check if commit author matches the pattern (case-insensitive, partial match in name or email)."""
-    if not author_pattern:
-        return True
-    pattern_lower = author_pattern.lower()
-    return (
-        pattern_lower in commit["author_name"].lower()
-        or pattern_lower in commit["author_email"].lower()
-    )
+def matches_any(name, email, patterns):
+    """True if any pattern is a case-insensitive substring of the name or email.
+
+    Substring (not regex) keeps multiple `--author "<name>"` / `--author "<handle>"`
+    patterns behaving predictably; a GitHub-noreply address
+    (<account-id>+<handle>@users.noreply.github.com) matches whenever you pass the handle
+    as one of the patterns.
+    """
+    if not patterns:
+        return False
+    n = (name or "").lower()
+    e = (email or "").lower()
+    return any(p.lower() in n or p.lower() in e for p in patterns)
 
 
-def analyze(commits, target_author):
-    """Run full analysis on the list of commits."""
+def matches_author(commit, patterns):
+    """Check if a commit's author matches any of the identity patterns."""
+    return matches_any(commit["author_name"], commit["author_email"], patterns)
+
+
+def analyze(commits, target_authors):
+    """Run full analysis on the list of commits. `target_authors` is a list of patterns."""
     total_commits = len(commits)
     if total_commits == 0:
         return None
 
     # Author breakdown
     author_counts = Counter(c["author_name"] for c in commits)
-    user_commits = [c for c in commits if matches_author(c, target_author)] if target_author else []
+    user_commits = [c for c in commits if matches_author(c, target_authors)] if target_authors else []
     user_commit_count = len(user_commits)
     user_share = (user_commit_count / total_commits * 100) if total_commits else 0
+
+    # Identity rollup: every (name, email) variant the patterns matched, with counts.
+    # Surfaces e.g. a GitHub-noreply variant so the user can spot a missing pattern.
+    identity_variants = Counter((c["author_name"], c["author_email"]) for c in user_commits)
 
     # Conventional commit breakdown (for ALL commits)
     type_counts = Counter()
@@ -180,8 +208,8 @@ def analyze(commits, target_author):
             user_untyped_count += 1
 
     # Compute ratios (use user commits if specified, else all)
-    relevant_commits = user_commits if target_author else commits
-    relevant_type_counts = user_type_counts if target_author else type_counts
+    relevant_commits = user_commits if target_authors else commits
+    relevant_type_counts = user_type_counts if target_authors else type_counts
     relevant_total = len(relevant_commits)
 
     feat_count = relevant_type_counts.get("feat", 0)
@@ -219,14 +247,18 @@ def analyze(commits, target_author):
 
     return {
         "total_commits": total_commits,
-        "target_author": target_author,
+        "target_authors": target_authors,
+        "identity_variants": [
+            {"name": n, "email": e, "count": ct}
+            for (n, e), ct in identity_variants.most_common()
+        ],
         "user_commit_count": user_commit_count,
         "user_share_pct": user_share,
         "author_breakdown": dict(author_counts.most_common(10)),
         "type_counts_all": dict(type_counts),
-        "type_counts_user": dict(user_type_counts) if target_author else None,
+        "type_counts_user": dict(user_type_counts) if target_authors else None,
         "untyped_count_all": untyped_count,
-        "untyped_count_user": user_untyped_count if target_author else None,
+        "untyped_count_user": user_untyped_count if target_authors else None,
         "feat_fix_ratio": feat_fix_ratio,
         "feat_count": feat_count,
         "fix_count": fix_count,
@@ -346,6 +378,168 @@ def get_pr_stats(since=None, until=None):
 
 
 
+# ---------------------------------------------------------------------------
+# Authorship gate (--paths)
+# ---------------------------------------------------------------------------
+
+def list_tracked_files(path):
+    """Tracked files under a path (the path itself if it's a single tracked file)."""
+    out = run_git(["ls-files", "-z", "--", path])
+    if not out:
+        return []
+    return [f for f in out.split("\0") if f]
+
+
+def build_ignore_args(manual_revs):
+    """Blame ignore-revs args: auto .git-blame-ignore-revs at repo root + manual --ignore-rev.
+
+    Mass-reformatting/rename commits (Prettier, lint --fix) rewrite lines and steal blame
+    onto their author. Excluding such a commit re-attributes its lines to the prior author.
+    """
+    args = []
+    root = run_git(["rev-parse", "--show-toplevel"])
+    if root:
+        p = os.path.join(root, ".git-blame-ignore-revs")
+        if os.path.isfile(p):
+            args += ["--ignore-revs-file", p]
+    for rev in (manual_revs or []):
+        args += ["--ignore-rev", rev]
+    return args
+
+
+def blame_share(filepath, patterns, ignore_args=None):
+    """Your blame share of a file at HEAD. Returns (your_lines, total_lines).
+
+    --line-porcelain repeats the author headers for EVERY line (unlike --porcelain),
+    so each '\\t'-prefixed source line is reliably preceded by its own author/author-mail.
+    -w ignores whitespace-only changes; ignore_args excludes named reformatting commits.
+    """
+    out = run_git(
+        ["blame", "-w", "--line-porcelain"] + (ignore_args or []) + ["HEAD", "--", filepath]
+    )
+    if not out:
+        return (0, 0)
+    your = total = 0
+    name = email = ""
+    for line in out.split("\n"):
+        if line.startswith("author "):
+            name = line[len("author "):]
+        elif line.startswith("author-mail "):
+            email = line[len("author-mail "):].strip().strip("<>")
+        elif line.startswith("\t"):
+            total += 1
+            if matches_any(name, email, patterns):
+                your += 1
+            name = email = ""
+    return (your, total)
+
+
+def created_by_you(filepath, patterns):
+    """True/False if you authored the commit that first added this file; None if unknown.
+
+    --follow tracks across renames; --diff-filter=A keeps only additions. git log is
+    newest-first, so the last line is the original creation.
+    """
+    out = run_git(
+        ["log", "--follow", "--diff-filter=A", "--format=%an%x1f%ae", "--", filepath]
+    )
+    if not out:
+        return None
+    name, _, email = out.split("\n")[-1].partition("\x1f")
+    return matches_any(name, email, patterns)
+
+
+def gate_one_path(path, patterns, ignore_args=None):
+    """Classify a single file or directory as OWN / PARTIAL / SKIP by blame share."""
+    is_dir = os.path.isdir(path)
+    files = list_tracked_files(path)
+    truncated = len(files) > MAX_FILES_PER_PATH
+    if truncated:
+        files = sorted(files)[:MAX_FILES_PER_PATH]
+
+    your = total = 0
+    for f in files:
+        y, t = blame_share(f, patterns, ignore_args)
+        your += y
+        total += t
+
+    # Creator detection is reliable only for a single file (--follow rejects dirs).
+    created = created_by_you(path, patterns) if (not is_dir and files) else None
+
+    share = (your / total * 100) if total else 0.0
+    # Creator-ship is the stronger OWN signal — it wins even for a file with no blameable
+    # lines (e.g. one you created that's now empty), so it's checked before total == 0.
+    if created or share >= OWN_THRESHOLD:
+        verdict = "OWN"
+    elif total == 0:
+        verdict = "UNTRACKED"  # nothing tracked here / no blameable lines, and not yours
+    elif share >= PARTIAL_THRESHOLD:
+        verdict = "PARTIAL"
+    else:
+        verdict = "SKIP"
+
+    return {
+        "path": path,
+        "is_dir": is_dir,
+        "created_by_you": created,
+        "your_lines": your,
+        "total_lines": total,
+        "share_pct": share,
+        "files_scanned": len(files),
+        "truncated": truncated,
+        "verdict": verdict,
+    }
+
+
+def run_authorship_gate(paths, patterns, ignore_args=None):
+    """Classify each path. Returns a list of result dicts."""
+    return [gate_one_path(p, patterns, ignore_args) for p in paths]
+
+
+def format_gate_report(results, patterns, ignore_args=None):
+    """Render the authorship gate as human-readable text."""
+    lines = []
+    lines.append("=" * 60)
+    lines.append("Authorship gate")
+    lines.append("=" * 60)
+    lines.append(f"Identity: {', '.join(patterns)}")
+    lines.append(f"Thresholds: OWN >= {OWN_THRESHOLD:.0f}% or creator | "
+                 f"PARTIAL >= {PARTIAL_THRESHOLD:.0f}% and < {OWN_THRESHOLD:.0f}% | "
+                 f"SKIP < {PARTIAL_THRESHOLD:.0f}%")
+    lines.append("Blame: -w (ignore whitespace)" +
+                 (f", ignoring revs: {' '.join(ignore_args)}" if ignore_args
+                  else " (no reformatting commits excluded — see KNOWN LIMITATION below)"))
+    lines.append("")
+    for r in results:
+        kind = "dir " if r["is_dir"] else "file"
+        lines.append(f"[{r['verdict']:<9}] ({kind}) {r['path']}")
+        if r["total_lines"]:
+            lines.append(f"             your lines: {r['your_lines']}/{r['total_lines']} "
+                         f"({r['share_pct']:.1f}%)")
+        else:
+            lines.append("             your lines: 0/0 (nothing tracked / blameable)")
+        if r["created_by_you"] is not None:
+            lines.append(f"             created by you: {'yes' if r['created_by_you'] else 'no'}")
+        if r["is_dir"]:
+            note = f"             files scanned: {r['files_scanned']}"
+            if r["truncated"]:
+                note += f" (capped at {MAX_FILES_PER_PATH} — share is over the sampled files only)"
+            lines.append(note)
+        lines.append("")
+    lines.append("=" * 60)
+    lines.append("Gate rule (see references/AUTHORSHIP_GATE.md):")
+    lines.append("  OWN     → bullet freely.")
+    lines.append("  PARTIAL → bullet only with explicit co-built framing.")
+    lines.append("  SKIP    → do not bullet, even if recent or you remember touching it.")
+    lines.append("")
+    lines.append("KNOWN LIMITATION: blame shows whose lines these are NOW, not who originated")
+    lines.append("the feature — a repo-wide formatter or heavy refactor can read OWN for a")
+    lines.append("teammate's work. Exclude formatting commits (--ignore-rev); for refactors,")
+    lines.append("match the verb (re-architected ≠ built). See AUTHORSHIP_GATE.md.")
+    lines.append("=" * 60)
+    return "\n".join(lines)
+
+
 def format_report(stats):
     """Render analysis as human-readable text."""
     if not stats:
@@ -362,9 +556,21 @@ def format_report(stats):
     lines.append(f"Total commits: {stats['total_commits']}")
     lines.append("")
 
-    if stats["target_author"]:
-        lines.append(f"Author filter: '{stats['target_author']}'")
+    if stats["target_authors"]:
+        patterns = ", ".join(f"'{p}'" for p in stats["target_authors"])
+        lines.append(f"Author filter: {patterns}")
         lines.append(f"  Your commits: {stats['user_commit_count']} ({stats['user_share_pct']:.1f}% of total)")
+        lines.append("")
+
+        variants = stats.get("identity_variants") or []
+        lines.append("Identity rollup (variants matched by your patterns):")
+        if variants:
+            for v in variants:
+                lines.append(f"  {v['name']} <{v['email']}>: {v['count']}")
+        else:
+            lines.append("  (none — no commits matched your patterns)")
+        lines.append("  Tip: web/merge-UI commits use <id>+<handle>@users.noreply.github.com.")
+        lines.append("       If the count looks low, re-run with an extra --author \"<handle>\".")
         lines.append("")
 
     lines.append("Top contributors:")
@@ -373,9 +579,9 @@ def format_report(stats):
         lines.append(f"  {author}: {count} ({pct:.1f}%)")
     lines.append("")
 
-    counts_to_show = stats["type_counts_user"] if stats["target_author"] else stats["type_counts_all"]
-    untyped_to_show = stats["untyped_count_user"] if stats["target_author"] else stats["untyped_count_all"]
-    label_suffix = " (your commits)" if stats["target_author"] else " (all commits)"
+    counts_to_show = stats["type_counts_user"] if stats["target_authors"] else stats["type_counts_all"]
+    untyped_to_show = stats["untyped_count_user"] if stats["target_authors"] else stats["untyped_count_all"]
+    label_suffix = " (your commits)" if stats["target_authors"] else " (all commits)"
 
     lines.append(f"Conventional commit breakdown{label_suffix}:")
     total_typed = sum(counts_to_show.values())
@@ -436,9 +642,19 @@ def format_report(stats):
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze git history for CV bullet generation.")
-    parser.add_argument("--author", help="Filter user commits by author name/email pattern (substring match)")
+    parser.add_argument("--author", action="append", dest="authors", metavar="PATTERN",
+                        help="Author name/email pattern (substring match). Repeat for every "
+                             "variant you commit under, e.g. --author \"Maciej Wojda\" --author \"mwx27\".")
     parser.add_argument("--since", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--until", help="End date (YYYY-MM-DD)")
+    parser.add_argument("--paths", nargs="+", metavar="PATH",
+                        help="Authorship gate: classify each file/folder as OWN/PARTIAL/SKIP "
+                             "by your git-blame share. Requires --author.")
+    parser.add_argument("--ignore-rev", action="append", dest="ignore_revs", metavar="SHA",
+                        help="Exclude a commit from blame — e.g. a repo-wide formatting/rename "
+                             "commit that would otherwise credit you with its rewritten lines. "
+                             "Repeatable. A .git-blame-ignore-revs file at the repo root is used "
+                             "automatically.")
     parser.add_argument("--json", action="store_true", help="Output as JSON instead of formatted text")
     args = parser.parse_args()
 
@@ -446,8 +662,25 @@ def main():
         print("ERROR: Not inside a git repository.", file=sys.stderr)
         sys.exit(1)
 
+    authors = args.authors or []
+
+    # Authorship gate mode: classify paths and exit (no history scan needed).
+    if args.paths:
+        if not authors:
+            print("ERROR: --paths requires --author (the gate needs your identity to "
+                  "compute blame share).", file=sys.stderr)
+            sys.exit(1)
+        ignore_args = build_ignore_args(args.ignore_revs)
+        results = run_authorship_gate(args.paths, authors, ignore_args)
+        if args.json:
+            import json
+            print(json.dumps(results, indent=2, default=str))
+        else:
+            print(format_gate_report(results, authors, ignore_args))
+        return
+
     commits = get_commits(since=args.since, until=args.until)
-    stats = analyze(commits, args.author)
+    stats = analyze(commits, authors)
 
     # Empty range (--since/--until/--author window with no commits) is a normal input.
     if stats is None:

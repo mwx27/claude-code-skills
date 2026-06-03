@@ -3,6 +3,11 @@
 The skill persists the categorized inventory as a markdown file the user reviews
 offline, uses for interview prep, and compares against future iterations.
 
+**The inventory is a truth document, not a journey log.** Only include items that survive
+verification (Phase 2.5 authorship gate, Phase 4 categorization). Items rejected during the
+blame check are *not* documented here — no "considered but cut" or audit-trail section. The
+user must be able to trust every row as verifiably theirs.
+
 ## When & where
 
 - **Path**: `<cv_path>/content/data-inventories/{project-slug}-{YYYY-MM-DD}.md`

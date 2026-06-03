@@ -168,9 +168,16 @@ python3 ~/.claude/skills/cv-bullets/scripts/analyze_git.py --author "<git_author
 python3 ~/.claude/skills/cv-bullets/scripts/analyze_git.py --author "<git_author_pattern>" --json              # for parsing
 ```
 
-Substitute the configured `git_author_pattern`; if config holds several comma-separated
-patterns, run once per pattern and merge, or pick the one matching this repo. Flags:
-`--author`, `--since`, `--until`, `--json`.
+Substitute the configured `git_author_pattern`. `--author` is **repeatable** — pass one
+per variant if config holds several comma-separated patterns (e.g. `--author "Maciej Wojda"
+--author "mwx27"`), so squash/merge commits under a GitHub-noreply email get counted too.
+Flags: `--author` (repeatable), `--paths` (the Phase 2.5 gate), `--since`, `--until`,
+`--json`.
+
+Read the **Identity rollup** the script prints: it lists every name/email variant your
+patterns matched, with counts. If a top contributor is actually you under another email, or
+the count looks low, add that variant as another `--author` and re-run before trusting any
+share number. Carry the same full pattern set into the Phase 2.5 gate.
 
 The script reports: total commits; user's commits vs others (% share); conventional
 commit breakdown; feat:fix ratio; quality ratio (refactor+test+perf); % of commits
@@ -185,6 +192,30 @@ framing. Report PR counts per-repo in the inventory, not as one total.
 Then **read key files** identified from CLAUDE.md/README/structure: architecture
 decisions, non-trivial code (concurrency, error handling, custom integrations), test
 setup, configuration that signals senior thinking.
+
+### Phase 2.5 — Authorship gate (mandatory, before composition)
+
+**For every file or folder you intend to name in an inventory item, verify authorship
+with `git blame` first.** "Exists in the repo and looks custom" ≠ "you built it" — in
+projects joined mid-flight, this is how teammates' work silently ends up in your bullets.
+Run the gate over the candidate paths (same `--author` set as Phase 2):
+
+```bash
+python3 ~/.claude/skills/cv-bullets/scripts/analyze_git.py --author "<p1>" --author "<p2>" --paths <path> <path> …
+```
+
+Each path returns **OWN** (you created it, or blame ≥ 50% → bullet freely), **PARTIAL**
+(20–49% → bullet only with explicit co-built framing), or **SKIP** (< 20% → don't bullet,
+even if recent). The verdict **overrides earlier categorization** — a FLAGSHIP-looking path
+that comes back SKIP does not ship — and rejected items are not recorded in the inventory.
+
+**Known limitation:** blame shows whose lines these are *now*, not who originated the
+feature — a repo-wide formatter or heavy refactor can read OWN for a teammate's substance.
+The gate runs `git blame -w` and honors `.git-blame-ignore-revs` / `--ignore-rev`; for
+refactors, match the verb (re-architected ≠ built).
+
+Full mechanics — identity setup, dir vs file, framing examples, the reformatting/refactor
+blind spots, the truth-document rule — are in **`references/AUTHORSHIP_GATE.md`**.
 
 ### Phase 3 — Inventory
 
@@ -340,11 +371,13 @@ auto-loaded:
 - `references/EXAMPLES_OF_MISTAKES.md` — anti-patterns from real iterations (Phase 6).
 - `references/DIALOG_GATE.md` — sibling-scan and repo-selection widget mechanics (Phase 0
   Question 1).
+- `references/AUTHORSHIP_GATE.md` — per-path blame gate mechanics, identity-set setup, and
+  PARTIAL framing (Phase 2.5).
 - `references/INVENTORY_TEMPLATE.md` — inventory file template, path convention, and
   techStack-revision / duplicate-warning formats.
-- `scripts/analyze_git.py`, `scripts/scan_siblings.py` — git/PR metrics and sibling
-  discovery.
+- `scripts/analyze_git.py` — git/PR metrics (`--author` repeatable, identity rollup) and the
+  `--paths` authorship gate; `scripts/scan_siblings.py` — sibling discovery.
 
 ---
 
-**Current version: 0.1.0.** See `CHANGELOG.md` for version history.
+**Current version: 0.2.0.** See `CHANGELOG.md` for version history.

@@ -6,6 +6,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and th
 
 ---
 
+## [0.2.0] — 2026-06-03
+
+### Added
+
+- **Authorship gate (Phase 2.5)** — before a bullet can claim a file or folder, the skill verifies you actually wrote it with `git blame`. `scripts/analyze_git.py --paths <path…>` labels each path **OWN** / **PARTIAL** / **SKIP** by your blame share and overrides earlier categorization, so in projects you joined mid-flight a teammate's code can no longer end up in your bullets. Runs `git blame -w` and honors `.git-blame-ignore-revs` / `--ignore-rev` to exclude formatting commits. Mechanics: `references/AUTHORSHIP_GATE.md`.
+- **Commit attribution across your git identities** — `analyze_git.py --author` can now be given more than once, so commits made under any of your name/email variants all count as yours. The report lists every variant it matched (with counts), surfacing e.g. GitHub merge-UI commits under `<account-id>+<handle>@users.noreply.github.com` that a single name pattern silently missed — which previously undercounted your contribution.
+
+### Changed
+
+- The inventory is now explicitly a **truth document** (`references/INVENTORY_TEMPLATE.md`): only verified items are recorded; items rejected during the authorship gate are not logged at all (no audit-trail / "considered but cut" section).
+
+### Known limitations
+
+- The gate reflects whose lines a file holds *now*, not who originated its substance: a repo-wide reformat or heavy refactor can read OWN for a teammate's code. `-w` + `--ignore-rev` / `.git-blame-ignore-revs` mitigate the formatting case; for refactors the safeguard is verb choice (re-architected ≠ built). The user remains the final authority on an OWN verdict.
+
+---
+
 ## [0.1.0] — 2026-06-02
 
 First public release on the marketplace. This entry describes the feature set the skill ships with, not a delta from earlier work (prior iterations were never publicly released — see *Prior history* below).

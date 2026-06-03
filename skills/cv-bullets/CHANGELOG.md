@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and th
 
 ---
 
+## [0.3.0] — 2026-06-03
+
+### Added
+
+- **Discovery-completeness safeguards** (`references/DISCOVERY_COMPLETENESS.md`) against the skill silently missing real work. Two checks: (1) a Phase 3 sniff test — if the inventory is much thinner than ~3–5 candidates per active year (judged from the user's own commit activity, not the repo-wide calendar), the skill dispatches a read-only `Explore` subagent to re-scan the repo with a neutral prompt before composing, so whole subsystems aren't walked past; its findings still pass the Phase 2.5 authorship gate. (2) a Phase 6 category-mix check — bullets clustering 3+ in one of feature / refactor / maintenance (especially on >1-year engagements) flag the other buckets as under-sampled and prompt a re-scan rather than an unbalanced set. Neither check pads to a number; both look only for work that was actually missed.
+
 ## [0.2.0] — 2026-06-03
 
 ### Added

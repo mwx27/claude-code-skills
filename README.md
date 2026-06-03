@@ -41,6 +41,6 @@ Some skills read a per-user config file so they don't ship anyone's personal pat
 
 ### cv-bullets
 
-Generate, refine, or analyze CV/resume bullets for software projects. It runs a mandatory dialog gate to capture cross-repo context, scans the project repo (and related sibling repos), pulls git + PR metrics, categorizes achievements as baseline vs senior, and composes bilingual (Polish/English) bullets that follow a strict style guide — writing them straight into your CV files for review via `git diff`.
+Generate, refine, or analyze CV/resume bullets for software projects. It runs a mandatory dialog gate to capture cross-repo context, scans the project repo (and related sibling repos), pulls git + PR metrics, categorizes achievements as baseline vs senior, and composes bilingual (Polish/English) bullets that follow a strict style guide — writing them straight into your CV files for review via `git diff`. If the work it found looks thin for how long you were on the project, it re-scans the repo before composing so whole parts of your contribution don't get left out.
 
 One caveat worth knowing: to stop you from claiming a teammate's work, the skill checks `git blame` before it bullets any file. That check is a strong filter, not the last word — if you reformatted a whole repo (say, ran Prettier) or did heavy refactoring, git can credit you with code that is really someone else's. Treat its authorship calls as a guardrail and use your own judgement; you stay the final authority on what's genuinely yours.

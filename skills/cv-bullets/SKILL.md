@@ -222,6 +222,13 @@ blind spots, the truth-document rule — are in **`references/AUTHORSHIP_GATE.md
 Build a flat list of every technical decision and achievement found. Don't categorize
 yet — enumerate. Over-collect now; filter later.
 
+**Completeness sniff test.** Before Phase 4, check the inventory isn't suspiciously thin
+for how much the user actually worked the project — judged from their own commit activity,
+not the repo's calendar. If it is, dispatch a feature-discovery `Explore` subagent to
+re-scan before composing. The candidate band, the user-scoped signals to read, the subagent
+prompt, and the fallback are in **`references/DISCOVERY_COMPLETENESS.md`**. Subagent findings
+still go through the Phase 2.5 gate.
+
 ### Phase 4 — Categorization
 
 Label each inventory item using `references/BASELINE_VS_SENIOR.md`: **BASELINE**
@@ -255,6 +262,11 @@ under the bus; one signal per bullet; natural language (no calques/awkward gramm
 tautologies; no empty adjectives; no header duplication in bullet 1. Also run the length
 checks from STYLE_GUIDE.md (padding cluster at 95–105, length-as-target, at most one
 extended slot). Fix issues before writing.
+
+**Category-mix check.** Sort the surviving bullets into feature / refactor / maintenance;
+3+ clustered in one bucket (especially on >1-year engagements) usually means the others
+were under-sampled — re-scan the thin buckets rather than accept the skew. Full rule in
+**`references/DISCOVERY_COMPLETENESS.md`**.
 
 ### Phase 6.5 — TechStack reconciliation
 
@@ -375,9 +387,11 @@ auto-loaded:
   PARTIAL framing (Phase 2.5).
 - `references/INVENTORY_TEMPLATE.md` — inventory file template, path convention, and
   techStack-revision / duplicate-warning formats.
+- `references/DISCOVERY_COMPLETENESS.md` — the inventory-size sniff test + `Explore`
+  feature-discovery subagent (Phase 3) and the category-mix check (Phase 6).
 - `scripts/analyze_git.py` — git/PR metrics (`--author` repeatable, identity rollup) and the
   `--paths` authorship gate; `scripts/scan_siblings.py` — sibling discovery.
 
 ---
 
-**Current version: 0.2.0.** See `CHANGELOG.md` for version history.
+**Current version: 0.3.0.** See `CHANGELOG.md` for version history.
